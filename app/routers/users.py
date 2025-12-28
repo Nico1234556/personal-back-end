@@ -1,26 +1,33 @@
-from typing import List
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from app.database import get_session
-from app.models import User, UserCreate, UserRead
-from app.security import get_password_hash
-from app.deps import get_current_user
+from app.models import User
+from app.schemas import UserCreate, UserPublic
 
 router = APIRouter()
 
-@router.post("/", response_model=UserRead)
+# 1. CREAR USUARIO (Registrarse)
+@router.post("/", response_model=UserPublic)
 def create_user(user: UserCreate, session: Session = Depends(get_session)):
-    user_db = User.from_orm(user)
-    user_db.hashed_password = get_password_hash(user.password)
-    session.add(user_db)
+    # Verificamos si el usuario ya existe
+    user_exists = session.exec(select(User).where(User.email == user.email)).first()
+    if user_exists:
+        raise HTTPException(status_code=400, detail="El email ya está registrado")
+
+    # Creamos el usuario (Sin encriptar nada, directo)
+    new_user = User(
+        username=user.username,
+        email=user.email,
+        password=user.password, # Guardamos "123456" tal cual
+    )
+    
+    session.add(new_user)
     session.commit()
-    session.refresh(user_db)
-    return user_db
+    session.refresh(new_user)
+    return new_user
 
-@router.get("/me", response_model=UserRead)
-def read_users_me(current_user: User = Depends(get_current_user)):
-    return current_user
-
-@router.get("/", response_model=List[UserRead])
-def read_users(session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
-    return session.exec(select(User)).all()
+# 2. LEER USUARIOS (Ver lista de todos)
+@router.get("/", response_model=list[UserPublic])
+def read_users(session: Session = Depends(get_session)):
+    users = session.exec(select(User)).all()
+    return users
